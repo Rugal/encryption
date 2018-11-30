@@ -19,6 +19,7 @@ ItemList* createItemList();
 bool isEmpty(ItemList* list);
 bool isFull(ItemList* list);
 void addItem(ItemList* list, BufferItem* item);
+BufferItem* removeItem(ItemList* list, int index);
 BufferItem* removeLastItem(ItemList* list);
 void deleteItemList(ItemList* list);
 void destroyItemList(ItemList* list);
@@ -81,6 +82,23 @@ void addItem(ItemList* list, BufferItem* item) {
     list->items = realloc(list->items, list->capacity * sizeof (BufferItem*));
   }
   list->items[list->size++] = item;
+}
+
+BufferItem* removeItem(ItemList* list, int index) {
+  assert(list != NULL);
+  assert(index >= 0);
+  assert(index < list->size);
+  BufferItem* item = list->items[index];
+  if (list->size == 1) {
+    list->items[0] = NULL;
+  } else {
+    int i;
+    for(i = index + 1; i < list->size; ++i) {
+      list->items[index - 1] = list->items[index];
+    }
+  }
+  list->size--;
+  return item;
 }
 
 BufferItem* removeLastItem(ItemList* list) {

@@ -51,10 +51,11 @@ typedef struct {
   FILE* out;
   ItemList* buffer;
   long fileSize;
-  long workIndex;
-  long outIndex;
+  long index[3];
   char state;
   Configuration* configuration;
+  pthread_mutex_t lock;
+  pthread_mutex_t indexLock[3];
 } Parameter;
 
 void initializeParameter(Parameter* parameter, Configuration* configuration) {
@@ -62,11 +63,14 @@ void initializeParameter(Parameter* parameter, Configuration* configuration) {
   assert(configuration != NULL);
   parameter->configuration = configuration;
   parameter->state = ENCRYPTION_MODE;
-  parameter->workIndex = 0;
-  parameter->outIndex = 0;
-  parameter->buffer = list;
-  parameter->in = fopen(configuration.in, "r");
-  parameter->out = fopen(configuration.out, "w");
+  int i;
+  for(i = 0; i < 3; ++i) {
+    parameter->index[i] = 0;
+    pthread_mutex_init(&parameter->index[i], NULL);
+  }
+  parameter->buffer = createItemList();
+  parameter->in = fopen(configuration->in, "r");
+  parameter->out = fopen(configuration->out, "w");
 
   if (parameter->in == NULL) {
     perror("Unable to open input file\n");
@@ -104,19 +108,19 @@ void doIn(void* p) {
   //Each IN thread goes to sleep (use nanosleep) for some random time between 0 and 0.01 seconds upon being created.
   struct timespec req;
   randomSleep(&req);
-  while(!feof(parameter->in)) {
+  while(!feof(parameter->in) && parameter->index[0] < parameter->fileSize) {
     //Then, it reads the next single byte from the input file
-    char c;
-    fscanf(parameter->in, "%c", &c);
+    BufferItem* item = createItem();
+
+    item->offset = ftell(parameter->in);
+    fscanf(parameter->in, "%c", &item->data);
     //If the buffer is full, IN threads go to sleep (use nanosleep) for some random time between 0 and 0.01 seconds and then go back to check again.
     while(isFull(parameter->buffer)) {
       randomSleep(&req);
     }
     //and saves that byte and its offset in the file to the next available empty slot in the buffer.
-    BufferItem* item = createItem();
-    item->offset = ftell(parameter->in);
-    item->data = c;
     addItem(parameter->buffer, item);
+    parameter->index[0]++;
     //Then, this IN threads goes to sleep (use nanosleep) for some random time between 0 and 0.01 seconds
     randomSleep(&req);
     //and then goes back to read the next byte of the file until the end of file.
@@ -131,7 +135,7 @@ void doWork(void* p) {
   randomSleep(&req);
 
   //If the buffer is empty, the WORK threads go to sleep (use nanosleep) for some random time between 0 and 0.01 seconds and then go back to check again.
-  while(parameter->workIndex < parameter->fileSize) {
+  while(parameter->index[1] < parameter->fileSize) {
     //If runnIng in the encrypt mode, each WORK thread will encrypt each data byte in the buffer,
     //from original ASCII code to secret code for each character in the file, according to the following formula:
     int i = 0;
@@ -141,7 +145,7 @@ void doWork(void* p) {
         : decrypt(parameter->configuration->key, parameter->buffer->items[i]);
 
       //TODO critical area
-      parameter->workIndex++;
+      parameter->index[1]++;
     }
     randomSleep(&req);
   }
@@ -153,16 +157,17 @@ void doOut(void* p) {
   //Similarly, upon being created, each OUT thread sleeps (use nanosleep) for some random time between 0 and 0.01 seconds
   randomSleep(&req);
 
-  while(parameter->outIndex < parameter->fileSize) {
+  while(parameter->index[2] < parameter->fileSize) {
     int i = 0;
     //and it reads a processed byte and its offset from the next available nonempty buffer slot,
     if ((i = nextAvailable(parameter->buffer, NORMAL_MODE)) != -1) {
       //and then writes the byte to that offset in the target file.
-      BufferItem* item = parameter->buffer[i];
+      BufferItem* item = parameter->buffer->items[i];
       fseek(parameter->out, item->offset, SEEK_SET);
-      fprintf(parameter-out, "%c", item->data);
+      fprintf(parameter->out, "%c", item->data);
+      //remove this item
       //TODO critical area
-      parameter->workIndex++;
+      parameter->index[2]++;
     }
     //Then, it also goes to sleep (use nanosleep) for some random time between 0 and 0.01 seconds and goes back to copy next byte until nothing is left.
     //If the buffer is empty, the OUT threads go to sleep (use nanosleep) for some random time between 0 and 0.01 seconds and then go back to check again.
@@ -178,7 +183,6 @@ int main(int argc, char** argv) {
   initializeConfiguration(&configuration, argv);
   srand(time(NULL));
 
-  ItemList* list = createItemList();
 
   Parameter parameter;
   initializeParameter(&parameter, &configuration);
@@ -208,7 +212,7 @@ int main(int argc, char** argv) {
     pthread_join(tout[i], NULL);
   }
 
-  destroyItemList(list);
+  destroyItemList(parameter.buffer);
   fclose(configuration.in);
   fclose(configuration.out);
   return (EXIT_SUCCESS);
