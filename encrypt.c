@@ -112,15 +112,19 @@ void doIn(void* p) {
     //Then, it reads the next single byte from the input file
     BufferItem* item = createItem();
 
+    pthread_mutex_lock(&parameter->indexLock[0]);
     item->offset = ftell(parameter->in);
     fscanf(parameter->in, "%c", &item->data);
+    pthread_mutex_unlock(&parameter->indexLock[0]);
     //If the buffer is full, IN threads go to sleep (use nanosleep) for some random time between 0 and 0.01 seconds and then go back to check again.
     while(isFull(parameter->buffer)) {
       randomSleep(&req);
     }
     //and saves that byte and its offset in the file to the next available empty slot in the buffer.
+    pthread_mutex_lock(&parameter->indexLock[0]);
     addItem(parameter->buffer, item);
     parameter->index[0]++;
+    pthread_mutex_unlock(&parameter->indexLock[0]);
     //Then, this IN threads goes to sleep (use nanosleep) for some random time between 0 and 0.01 seconds
     randomSleep(&req);
     //and then goes back to read the next byte of the file until the end of file.
@@ -139,14 +143,14 @@ void doWork(void* p) {
     //If runnIng in the encrypt mode, each WORK thread will encrypt each data byte in the buffer,
     //from original ASCII code to secret code for each character in the file, according to the following formula:
     int i = 0;
+    pthread_mutex_lock(&parameter->indexLock[1]);
     if ((i = nextAvailable(parameter->buffer, parameter->state)) != -1) {
       parameter->state == ENCRYPTION_MODE
         ? encrypt(parameter->configuration->key, parameter->buffer->items[i])
         : decrypt(parameter->configuration->key, parameter->buffer->items[i]);
-
-      //TODO critical area
       parameter->index[1]++;
     }
+    pthread_mutex_unlock(&parameter->indexLock[1]);
     randomSleep(&req);
   }
 }
@@ -160,15 +164,17 @@ void doOut(void* p) {
   while(parameter->index[2] < parameter->fileSize) {
     int i = 0;
     //and it reads a processed byte and its offset from the next available nonempty buffer slot,
+    pthread_mutex_lock(&parameter->indexLock[2]);
     if ((i = nextAvailable(parameter->buffer, NORMAL_MODE)) != -1) {
       //and then writes the byte to that offset in the target file.
       BufferItem* item = parameter->buffer->items[i];
       fseek(parameter->out, item->offset, SEEK_SET);
       fprintf(parameter->out, "%c", item->data);
       //remove this item
-      //TODO critical area
+      removeItem(parameter->buffer, i);
       parameter->index[2]++;
     }
+    pthread_mutex_unlock(&parameter->indexLock[2]);
     //Then, it also goes to sleep (use nanosleep) for some random time between 0 and 0.01 seconds and goes back to copy next byte until nothing is left.
     //If the buffer is empty, the OUT threads go to sleep (use nanosleep) for some random time between 0 and 0.01 seconds and then go back to check again.
     randomSleep(&req);
@@ -213,6 +219,10 @@ int main(int argc, char** argv) {
   }
 
   destroyItemList(parameter.buffer);
+  pthread_mutex_destroy(&parameter.lock);
+  for(i = 0; i < 3; ++i) {
+    pthread_mutex_destroy(&parameter.indexLock[i]);
+  }
   fclose(configuration.in);
   fclose(configuration.out);
   return (EXIT_SUCCESS);
