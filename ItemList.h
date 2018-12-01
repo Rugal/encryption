@@ -5,9 +5,6 @@
 #include <stdbool.h>
 
 #define LIST_INITIAL_CAPACITY 8
-#define ENCRYPTION_MODE 'E'
-#define DECRYPTION_MODE 'D'
-#define NORMAL_MODE 'N'
 
 //declaration
 typedef struct BufferItem BufferItem;
@@ -45,7 +42,7 @@ BufferItem* createItem() {
   assert(item != NULL);
   item->data = '\0';
   item->offset = 0;
-  item->state = ENCRYPTION_MODE;
+  item->state = 'N';
   return item;
 }
 
@@ -130,7 +127,7 @@ int nextAvailable(ItemList* buffer, char state) {
   assert(buffer != NULL);
   int i;
   for(i = 0; i < buffer->size; ++i)
-    if(buffer->items[i]->state == state)
+    if(buffer->items[i] != NULL && buffer->items[i]->state == state)
       return i;
   return -1;
 }

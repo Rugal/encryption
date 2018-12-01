@@ -1,5 +1,5 @@
-#ifndef SCLOG4C_H
-#define SCLOG4C_H
+#ifndef LOG4C_H
+#define LOG4C_H
 
 #include <limits.h>
 #include <stdio.h>
@@ -18,7 +18,7 @@ extern int log4c_level;
 
 #define LOG(level, fmt, ...) \
   if (level >= log4c_level) { \
-    fprintf(stderr, "%s:%d: %d: In function %s: " fmt "\n", __FILE__, __LINE__, level, __func__, ##__VA_ARGS__); \
+    fprintf(stderr, "%s@%-10s#%d:%d: " fmt "\n", __FILE__, __func__, __LINE__, level, ##__VA_ARGS__); \
   }
 
 #endif
