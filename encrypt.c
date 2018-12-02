@@ -19,7 +19,7 @@ CS Login:
 #include "log4c.h"
 
 #define NANO_TIME 10000000
-int log4c_level = LOG4C_ALL;
+int log4c_level = LOG4C_OFF;
 
 typedef struct {
   int key;
@@ -123,9 +123,10 @@ void doIn(void* p) {
   while(!feof(parameter->in) && parameter->index[0] < parameter->fileSize) {
     LOG(LOG4C_DEBUG, "Finish in index [%d]", parameter->index[0]);
     int i;
-    for(i = 0; i < parameter->buffer->size; ++i) {
-      BufferItem* item = parameter->buffer->items[i];
-      LOG(LOG4C_DEBUG, "[%c] @ [%d]", item->data, i);
+    for(i = 0; i < parameter->buffer->capacity; ++i) {
+      BufferItem* t = parameter->buffer->items[i];
+      if (NULL != t)
+        LOG(LOG4C_DEBUG, "[%c] @ [%d]", t->data, i);
     }
     //Then, it reads the next single byte from the input file
     BufferItem* item = createItem();
@@ -155,6 +156,11 @@ void doIn(void* p) {
     LOG(LOG4C_DEBUG, "Buffer size [%d]", parameter->buffer->size);
     LOG(LOG4C_DEBUG, "Unlock read mutex");
     pthread_mutex_unlock(&parameter->indexLock[0]);
+    for(i = 0; i < parameter->buffer->capacity; ++i) {
+      BufferItem* t = parameter->buffer->items[i];
+      if (NULL != t)
+        LOG(LOG4C_DEBUG, "[%c] @ [%d]", t->data, i);
+    }
     //Then, this IN threads goes to sleep (use nanosleep) for some random time between 0 and 0.01 seconds
     randomSleep(&req);
     //and then goes back to read the next byte of the file until the end of file.
@@ -208,9 +214,10 @@ void doOut(void* p) {
   while(parameter->index[2] < parameter->fileSize) {
     LOG(LOG4C_DEBUG, "Finish out index [%d]", parameter->index[2]);
     int i = 0;
-    for(i = 0; i < parameter->buffer->size; ++i) {
-      BufferItem* item = parameter->buffer->items[i];
-      LOG(LOG4C_DEBUG, "[%c] @ [%d]", item->data, i);
+    for(i = 0; i < parameter->buffer->capacity; ++i) {
+      BufferItem* t = parameter->buffer->items[i];
+      if (NULL != t)
+        LOG(LOG4C_DEBUG, "[%c] @ [%d]", t->data, i);
     }
     //and it reads a processed byte and its offset from the next available nonempty buffer slot,
     LOG(LOG4C_DEBUG, "Before buffer size [%d]", parameter->buffer->size);
@@ -229,8 +236,9 @@ void doOut(void* p) {
       pthread_mutex_lock(&parameter->writeLock);
 
       fseek(parameter->out, item->offset, SEEK_SET);
-      LOG(LOG4C_INFO, "Write data [%c] to output file", item->data);
+      LOG(LOG4C_INFO, "Write data [%c] to output [#%d]", item->data, item->offset);
       fprintf(parameter->out, "%c", item->data);
+      free(item);
 
       LOG(LOG4C_DEBUG, "Unlock write mutex");
       pthread_mutex_unlock(&parameter->writeLock);
@@ -245,6 +253,11 @@ void doOut(void* p) {
     //Then, it also goes to sleep (use nanosleep) for some random time between 0 and 0.01 seconds and goes back to copy next byte until nothing is left.
     //If the buffer is empty, the OUT threads go to sleep (use nanosleep) for some random time between 0 and 0.01 seconds and then go back to check again.
     LOG(LOG4C_DEBUG, "After buffer size [%d]", parameter->buffer->size);
+    for(i = 0; i < parameter->buffer->capacity; ++i) {
+      BufferItem* t = parameter->buffer->items[i];
+      if (NULL != t)
+        LOG(LOG4C_DEBUG, "[%c] @ [%d]", t->data, i);
+    }
     randomSleep(&req);
   }
   LOG(LOG4C_INFO, "Finish thread OUT");
@@ -272,9 +285,9 @@ int main(int argc, char** argv) {
   for (i = 0; i < configuration.nIn; ++i) {
     pthread_create(&tin[i], NULL, doIn, &parameter);
   }
-  /*for (i = 0; i < configuration.nWork; ++i) {*/
-    /*pthread_create(&twork[i], NULL, doWork, &parameter);*/
-  /*}*/
+  for (i = 0; i < configuration.nWork; ++i) {
+    pthread_create(&twork[i], NULL, doWork, &parameter);
+  }
   for (i = 0; i < configuration.nOut; ++i) {
     pthread_create(&tout[i], NULL, doOut, &parameter);
   }
@@ -283,9 +296,9 @@ int main(int argc, char** argv) {
   for (i = 0; i < configuration.nIn; ++i) {
     pthread_join(tin[i], NULL);
   }
-  /*for (i = 0; i < configuration.nWork; ++i) {*/
-    /*pthread_join(twork[i], NULL);*/
-  /*}*/
+  for (i = 0; i < configuration.nWork; ++i) {
+    pthread_join(twork[i], NULL);
+  }
   for (i = 0; i < configuration.nOut; ++i) {
     pthread_join(tout[i], NULL);
   }

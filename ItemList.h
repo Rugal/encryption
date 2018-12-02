@@ -16,9 +16,8 @@ void deleteItem(BufferItem* item);
 ItemList* createItemList(int capacity);
 bool isEmpty(ItemList* list);
 bool isFull(ItemList* list);
-void addItem(ItemList* list, BufferItem* item);
+int addItem(ItemList* list, BufferItem* item);
 BufferItem* removeItem(ItemList* list, int index);
-BufferItem* removeLastItem(ItemList* list);
 void deleteItemList(ItemList* list);
 void destroyItemList(ItemList* list);
 int nextAvailable(ItemList* buffer, char state);
@@ -72,36 +71,29 @@ bool isFull(ItemList* list) {
   return list->size >= list->capacity;
 }
 
-void addItem(ItemList* list, BufferItem* item) {
+int addItem(ItemList* list, BufferItem* item) {
   assert(list != NULL);
   assert(item != NULL);
   if (isFull(list)) {
-    //list->capacity *= 2;
-    //list->items = realloc(list->items, list->capacity * sizeof (BufferItem*));
-    return;
+    return -1;
   }
   int i;
   for (i = 0; i < list->capacity; ++i)
-    if (NULL == list->items[i])
+    if (NULL == list->items[i]) {
       list->items[i] = item;
+      break;
+    }
   list->size++;
+  return i;
 }
 
 BufferItem* removeItem(ItemList* list, int index) {
   assert(list != NULL);
   assert(index >= 0);
-  assert(index < list->size);
+  assert(index < list->capacity);
   BufferItem* item = list->items[index];
   list->items[index] = NULL;
   list->size--;
-  return item;
-}
-
-BufferItem* removeLastItem(ItemList* list) {
-  assert(list != NULL);
-  BufferItem* item = list->items[--list->size];
-  assert(item != NULL);
-  list->size = list->size < 0 ? 0 : list->size;
   return item;
 }
 
@@ -115,17 +107,17 @@ void deleteItemList(ItemList* list) {
 void destroyItemList(ItemList* list) {
   if(list == NULL)
     return;
-  while(!isEmpty(list)) {
-    BufferItem* item = removeLastItem(list);
-    free(item);
-  }
+  int i;
+  for(i = 0; i < list->capacity; ++i)
+    if (list->items[i] != NULL)
+      free(list->items[i]);
   deleteItemList(list);
 }
 
 int nextAvailable(ItemList* buffer, char target) {
   assert(buffer != NULL);
   int i;
-  for(i = 0; i < buffer->size; ++i)
+  for(i = 0; i < buffer->capacity; ++i)
     if(buffer->items[i] != NULL && buffer->items[i]->state == target)
       return i;
   return -1;
