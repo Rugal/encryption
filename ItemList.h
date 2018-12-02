@@ -2,6 +2,7 @@
 #define ITEMLIST_H
 
 #include <assert.h>
+#include <stdlib.h>
 #include <stdbool.h>
 
 #define LIST_INITIAL_CAPACITY 8
@@ -12,7 +13,7 @@ typedef struct ItemList ItemList;
 
 BufferItem* createItem();
 void deleteItem(BufferItem* item);
-ItemList* createItemList();
+ItemList* createItemList(int capacity);
 bool isEmpty(ItemList* list);
 bool isFull(ItemList* list);
 void addItem(ItemList* list, BufferItem* item);
@@ -51,10 +52,10 @@ void deleteItem(BufferItem* item) {
     free(item);
 }
 
-ItemList* createItemList() {
+ItemList* createItemList(int capacity) {
   ItemList* list = malloc(sizeof(ItemList));
   assert(list != NULL);
-  list->capacity = LIST_INITIAL_CAPACITY;
+  list->capacity = capacity;
   list->size = 0;
   list->items = malloc(list->capacity * sizeof(BufferItem*));
   assert(list->items != NULL);
@@ -75,10 +76,15 @@ void addItem(ItemList* list, BufferItem* item) {
   assert(list != NULL);
   assert(item != NULL);
   if (isFull(list)) {
-    list->capacity *= 2;
-    list->items = realloc(list->items, list->capacity * sizeof (BufferItem*));
+    //list->capacity *= 2;
+    //list->items = realloc(list->items, list->capacity * sizeof (BufferItem*));
+    return;
   }
-  list->items[list->size++] = item;
+  int i;
+  for (i = 0; i < list->capacity; ++i)
+    if (NULL == list->items[i])
+      list->items[i] = item;
+  list->size++;
 }
 
 BufferItem* removeItem(ItemList* list, int index) {
@@ -86,14 +92,7 @@ BufferItem* removeItem(ItemList* list, int index) {
   assert(index >= 0);
   assert(index < list->size);
   BufferItem* item = list->items[index];
-  if (list->size == 1) {
-    list->items[0] = NULL;
-  } else {
-    int i;
-    for(i = index + 1; i < list->size; ++i) {
-      list->items[index - 1] = list->items[index];
-    }
-  }
+  list->items[index] = NULL;
   list->size--;
   return item;
 }
@@ -123,11 +122,11 @@ void destroyItemList(ItemList* list) {
   deleteItemList(list);
 }
 
-int nextAvailable(ItemList* buffer, char state) {
+int nextAvailable(ItemList* buffer, char target) {
   assert(buffer != NULL);
   int i;
   for(i = 0; i < buffer->size; ++i)
-    if(buffer->items[i] != NULL && buffer->items[i]->state == state)
+    if(buffer->items[i] != NULL && buffer->items[i]->state == target)
       return i;
   return -1;
 }

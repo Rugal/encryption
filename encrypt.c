@@ -60,6 +60,7 @@ typedef struct {
   Configuration* configuration;
   pthread_mutex_t readLock;
   pthread_mutex_t writeLock;
+  pthread_mutex_t bufferLock;
   pthread_mutex_t indexLock[4];
 } Parameter;
 
@@ -75,7 +76,8 @@ void initializeParameter(Parameter* parameter, Configuration* configuration) {
   }
   pthread_mutex_init(&parameter->readLock, NULL);
   pthread_mutex_init(&parameter->writeLock, NULL);
-  parameter->buffer = createItemList();
+  pthread_mutex_init(&parameter->bufferLock, NULL);
+  parameter->buffer = createItemList(configuration->bufferSize);
   parameter->in = fopen(configuration->in, "r");
   parameter->out = fopen(configuration->out, "w");
 
@@ -120,6 +122,11 @@ void doIn(void* p) {
   randomSleep(&req);
   while(!feof(parameter->in) && parameter->index[0] < parameter->fileSize) {
     LOG(LOG4C_DEBUG, "Finish in index [%d]", parameter->index[0]);
+    int i;
+    for(i = 0; i < parameter->buffer->size; ++i) {
+      BufferItem* item = parameter->buffer->items[i];
+      LOG(LOG4C_DEBUG, "[%c] @ [%d]", item->data, i);
+    }
     //Then, it reads the next single byte from the input file
     BufferItem* item = createItem();
 
@@ -138,8 +145,12 @@ void doIn(void* p) {
     //and saves that byte and its offset in the file to the next available empty slot in the buffer.
     LOG(LOG4C_DEBUG, "Lock read mutex");
     pthread_mutex_lock(&parameter->indexLock[0]);
+    LOG(LOG4C_DEBUG, "Lock buffer mutex");
+    pthread_mutex_lock(&parameter->bufferLock);
     LOG(LOG4C_INFO, "Add data [%c] to buffer", item->data);
     addItem(parameter->buffer, item);
+    LOG(LOG4C_DEBUG, "Unlock buffer mutex");
+    pthread_mutex_unlock(&parameter->bufferLock);
     parameter->index[0]++;
     LOG(LOG4C_DEBUG, "Buffer size [%d]", parameter->buffer->size);
     LOG(LOG4C_DEBUG, "Unlock read mutex");
@@ -169,9 +180,13 @@ void doWork(void* p) {
       LOG(LOG4C_DEBUG, "Lock work mutex");
       pthread_mutex_lock(&parameter->indexLock[1]);
       /*LOG(LOG4C_INFO, "Work on data %c", item->data);*/
+      LOG(LOG4C_DEBUG, "Lock buffer mutex");
+      pthread_mutex_lock(&parameter->bufferLock);
       parameter->state == 'E'
         ? encrypt(parameter->configuration->key, parameter->buffer->items[i])
         : decrypt(parameter->configuration->key, parameter->buffer->items[i]);
+      LOG(LOG4C_DEBUG, "Unlock buffer mutex");
+      pthread_mutex_unlock(&parameter->bufferLock);
       parameter->index[1]++;
       LOG(LOG4C_DEBUG, "Unlock work mutex");
       pthread_mutex_unlock(&parameter->indexLock[1]);
@@ -193,19 +208,35 @@ void doOut(void* p) {
   while(parameter->index[2] < parameter->fileSize) {
     LOG(LOG4C_DEBUG, "Finish out index [%d]", parameter->index[2]);
     int i = 0;
+    for(i = 0; i < parameter->buffer->size; ++i) {
+      BufferItem* item = parameter->buffer->items[i];
+      LOG(LOG4C_DEBUG, "[%c] @ [%d]", item->data, i);
+    }
     //and it reads a processed byte and its offset from the next available nonempty buffer slot,
     LOG(LOG4C_DEBUG, "Before buffer size [%d]", parameter->buffer->size);
     if ((i = nextAvailable(parameter->buffer, 'N')) != -1) {
       LOG(LOG4C_DEBUG, "Lock out mutex");
       pthread_mutex_lock(&parameter->indexLock[2]);
       //and then writes the byte to that offset in the target file.
-      BufferItem* item = parameter->buffer->items[i];
+      LOG(LOG4C_DEBUG, "Lock buffer mutex");
+      pthread_mutex_lock(&parameter->bufferLock);
+
+      BufferItem* item = removeItem(parameter->buffer, i);
+      LOG(LOG4C_DEBUG, "Unlock buffer mutex");
+      pthread_mutex_unlock(&parameter->bufferLock);
+
+      LOG(LOG4C_DEBUG, "Lock write mutex");
+      pthread_mutex_lock(&parameter->writeLock);
+
       fseek(parameter->out, item->offset, SEEK_SET);
       LOG(LOG4C_INFO, "Write data [%c] to output file", item->data);
       fprintf(parameter->out, "%c", item->data);
+
+      LOG(LOG4C_DEBUG, "Unlock write mutex");
+      pthread_mutex_unlock(&parameter->writeLock);
       //remove this item
-      removeItem(parameter->buffer, i);
       parameter->index[2]++;
+
       LOG(LOG4C_DEBUG, "Unlock out mutex");
       pthread_mutex_unlock(&parameter->indexLock[2]);
     } else {
@@ -263,6 +294,7 @@ int main(int argc, char** argv) {
   destroyItemList(parameter.buffer);
   pthread_mutex_destroy(&parameter.readLock);
   pthread_mutex_destroy(&parameter.writeLock);
+  pthread_mutex_destroy(&parameter.bufferLock);
   for(i = 0; i < 3; ++i) {
     pthread_mutex_destroy(&parameter.indexLock[i]);
   }
