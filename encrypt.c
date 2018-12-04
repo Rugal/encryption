@@ -19,7 +19,7 @@ CS Login:
 #include "log4c.h"
 
 #define NANO_TIME 10000000
-int log4c_level = LOG4C_OFF;
+int log4c_level = LOG4C_ALL;
 
 typedef struct {
   int key;
@@ -182,15 +182,20 @@ void doWork(void* p) {
     //If runnIng in the encrypt mode, each WORK thread will encrypt each data byte in the buffer,
     //from original ASCII code to secret code for each character in the file, according to the following formula:
     int i = 0;
-    if ((i = nextAvailable(parameter->buffer, parameter->state)) != -1) {
+    /*LOG(LOG4C_ERROR, "[%c], [%d]", parameter->state, nextAvailable(parameter->buffer, parameter->state));*/
+    if ((i = nextAvailable(parameter->buffer, 'N')) != -1) {
       LOG(LOG4C_DEBUG, "Lock work mutex");
       pthread_mutex_lock(&parameter->indexLock[1]);
       /*LOG(LOG4C_INFO, "Work on data %c", item->data);*/
       LOG(LOG4C_DEBUG, "Lock buffer mutex");
       pthread_mutex_lock(&parameter->bufferLock);
+      BufferItem* item = parameter->buffer->items[i];
+      LOG(LOG4C_DEBUG, "Start working on encryption/decryption for item [%d] data [%c] with key [%d]", i, item->data, parameter->configuration->key);
+      char temp = item->data;
       parameter->state == 'E'
-        ? encrypt(parameter->configuration->key, parameter->buffer->items[i])
-        : decrypt(parameter->configuration->key, parameter->buffer->items[i]);
+        ? encrypt(parameter->configuration->key, item)
+        : decrypt(parameter->configuration->key, item);
+      LOG(LOG4C_DEBUG, "%s data [%c] to [%c] with key [%d] @ [%d]", parameter->state == 'E' ? "encrypt" : "decrypt", temp, item->data, parameter->configuration->key, i);
       LOG(LOG4C_DEBUG, "Unlock buffer mutex");
       pthread_mutex_unlock(&parameter->bufferLock);
       parameter->index[1]++;
@@ -221,7 +226,7 @@ void doOut(void* p) {
     }
     //and it reads a processed byte and its offset from the next available nonempty buffer slot,
     LOG(LOG4C_DEBUG, "Before buffer size [%d]", parameter->buffer->size);
-    if ((i = nextAvailable(parameter->buffer, 'N')) != -1) {
+    if ((i = nextAvailable(parameter->buffer, parameter->state)) != -1) {
       LOG(LOG4C_DEBUG, "Lock out mutex");
       pthread_mutex_lock(&parameter->indexLock[2]);
       //and then writes the byte to that offset in the target file.
@@ -229,6 +234,7 @@ void doOut(void* p) {
       pthread_mutex_lock(&parameter->bufferLock);
 
       BufferItem* item = removeItem(parameter->buffer, i);
+      LOG(LOG4C_DEBUG, "Remove data [%c]@[#%d] from buffer", item->data, i);
       LOG(LOG4C_DEBUG, "Unlock buffer mutex");
       pthread_mutex_unlock(&parameter->bufferLock);
 
@@ -274,6 +280,7 @@ int main(int argc, char** argv) {
   Parameter parameter;
   initializeParameter(&parameter, &configuration);
   parameter.state = 'E';
+  parameter.configuration = &configuration;
 
   pthread_t tin[configuration.nIn];
   pthread_t twork[configuration.nWork];
