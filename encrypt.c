@@ -19,7 +19,7 @@ CS Login:
 #include "log4c.h"
 
 #define NANO_TIME 10000000
-int log4c_level = LOG4C_ALL;
+int log4c_level = LOG4C_INFO;
 
 typedef struct {
   int key;
@@ -241,9 +241,20 @@ void doOut(void* p) {
       LOG(LOG4C_DEBUG, "Lock write mutex");
       pthread_mutex_lock(&parameter->writeLock);
 
-      fseek(parameter->out, item->offset, SEEK_SET);
+      LOG(LOG4C_DEBUG, "Move file position to [#%d]", item->offset);
+      if (fseek(parameter->out, item->offset, SEEK_SET) == -1) {
+          LOG(LOG4C_ERROR, "error setting output file position to %d\n", item->offset);
+          exit(-1);
+      }
       LOG(LOG4C_INFO, "Write data [%c] to output [#%d]", item->data, item->offset);
-      fprintf(parameter->out, "%c", item->data);
+      if (fputc(item->data, parameter->out) == EOF) {
+          LOG(LOG4C_ERROR, "error writing byte %d to output file\n", item->data);
+          exit(-1);
+      }
+      fflush(parameter->out);
+
+      /*fseek(parameter->out, item->offset, SEEK_SET);*/
+      /*fprintf(parameter->out, "%c", item->data);*/
       free(item);
 
       LOG(LOG4C_DEBUG, "Unlock write mutex");
@@ -318,8 +329,8 @@ int main(int argc, char** argv) {
   for(i = 0; i < 3; ++i) {
     pthread_mutex_destroy(&parameter.indexLock[i]);
   }
-  fclose(configuration.in);
-  fclose(configuration.out);
+  fclose(parameter.in);
+  fclose(parameter.out);
   return (EXIT_SUCCESS);
 }
 
