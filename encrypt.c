@@ -7,6 +7,7 @@ CS Login:
 */
 
 #include <assert.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,12 +15,53 @@ CS Login:
 #include <pthread.h>
 #include <time.h>
 #include <sys/types.h>
+#include <limits.h>
 
-#include "ItemList.h"
-#include "log4c.h"
-
+#define LIST_INITIAL_CAPACITY 8
 #define NANO_TIME 10000000
-int log4c_level = LOG4C_INFO;
+enum Log4CLevel {
+  LOG4C_ALL     = INT_MIN,
+  LOG4C_TRACE   = 0,
+  LOG4C_DEBUG   = 10,
+  LOG4C_INFO    = 20,
+  LOG4C_WARNING = 30,
+  LOG4C_ERROR   = 40,
+  LOG4C_OFF     = INT_MAX
+};
+
+int log4c_level;
+
+#define LOG(level, fmt, ...) \
+  if (level >= log4c_level) { \
+    fprintf(stderr, "%s@%-10s#%d:%d: " fmt "\n", __FILE__, __func__, __LINE__, level, ##__VA_ARGS__); \
+  }
+
+//declaration
+typedef struct BufferItem BufferItem;
+typedef struct ItemList ItemList;
+
+struct BufferItem {
+  char  data ;
+  off_t offset ;
+  char state;
+};
+
+struct ItemList {
+  BufferItem** items;
+  int capacity;
+  int size;
+};
+
+BufferItem* createItem();
+void deleteItem(BufferItem* item);
+ItemList* createItemList(int capacity);
+bool isEmpty(ItemList* list);
+bool isFull(ItemList* list);
+int addItem(ItemList* list, BufferItem* item);
+BufferItem* removeItem(ItemList* list, int index);
+void deleteItemList(ItemList* list);
+void destroyItemList(ItemList* list);
+int nextAvailable(ItemList* buffer, char state);
 
 typedef struct {
   int key;
@@ -41,6 +83,8 @@ void initializeConfiguration(Configuration* configuration, char** argv) {
   configuration->out = argv[6];
   configuration->bufferSize = atoi(argv[7]);
   //TODO validate value
+  assert(configuration->key >= -127 && configuration->key <= 127);
+  assert(configuration->nIn > 0);
 }
 
 void randomSleep(struct timespec* req) {
@@ -332,5 +376,94 @@ int main(int argc, char** argv) {
   fclose(parameter.in);
   fclose(parameter.out);
   return (EXIT_SUCCESS);
+}
+
+// definition
+
+
+BufferItem* createItem() {
+  BufferItem* item = malloc(sizeof(BufferItem));
+  assert(item != NULL);
+  item->data = '\0';
+  item->offset = 0;
+  item->state = 'N';
+  return item;
+}
+
+void deleteItem(BufferItem* item) {
+  if(item != NULL)
+    free(item);
+}
+
+ItemList* createItemList(int capacity) {
+  ItemList* list = malloc(sizeof(ItemList));
+  assert(list != NULL);
+  list->capacity = capacity;
+  list->size = 0;
+  list->items = malloc(list->capacity * sizeof(BufferItem*));
+  assert(list->items != NULL);
+  return list;
+}
+
+bool isEmpty(ItemList* list) {
+  assert(list != NULL);
+  return list->size == 0;
+}
+
+bool isFull(ItemList* list) {
+  assert(list != NULL);
+  return list->size >= list->capacity;
+}
+
+int addItem(ItemList* list, BufferItem* item) {
+  assert(list != NULL);
+  assert(item != NULL);
+  if (isFull(list)) {
+    return -1;
+  }
+  int i;
+  for (i = 0; i < list->capacity; ++i)
+    if (NULL == list->items[i]) {
+      list->items[i] = item;
+      break;
+    }
+  list->size++;
+  return i;
+}
+
+BufferItem* removeItem(ItemList* list, int index) {
+  assert(list != NULL);
+  assert(index >= 0);
+  assert(index < list->capacity);
+  BufferItem* item = list->items[index];
+  list->items[index] = NULL;
+  list->size--;
+  return item;
+}
+
+void deleteItemList(ItemList* list) {
+  if(list == NULL)
+    return;
+  free(list->items);
+  free(list);
+}
+
+void destroyItemList(ItemList* list) {
+  if(list == NULL)
+    return;
+  int i;
+  for(i = 0; i < list->capacity; ++i)
+    if (list->items[i] != NULL)
+      free(list->items[i]);
+  deleteItemList(list);
+}
+
+int nextAvailable(ItemList* buffer, char target) {
+  assert(buffer != NULL);
+  int i;
+  for(i = 0; i < buffer->capacity; ++i)
+    if(buffer->items[i] != NULL && buffer->items[i]->state == target)
+      return i;
+  return -1;
 }
 
